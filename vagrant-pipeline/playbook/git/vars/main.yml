@@ -1,0 +1,22 @@
+---
+# vars file
+
+hostname: "{{ inventory_hostname_short }}"
+git_repos: /repos
+users:
+  - name: user1
+    password: qwerty123
+    group: users
+  - name: user2
+    password: qwerty123
+    group: users
+  - name: user3
+    password: qwerty123
+    group: users
+  - name: user4
+    password: qwerty123
+    group: users
+  - name: user5
+    password: qwerty123
+    group: users
+

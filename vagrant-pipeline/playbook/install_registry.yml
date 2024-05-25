@@ -1,0 +1,11 @@
+---
+- name: Set up 
+  hosts: regi
+  gather_facts: true
+  become: true
+
+  roles:
+    - centos
+    - docker-ce
+    - docker-deploy    
+

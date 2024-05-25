@@ -1,0 +1,11 @@
+dn: uid=maho,ou=Employee,dc=rat,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: maho
+sn: Linux
+userPassword: {{ user_password_ssha }}
+loginShell: /bin/bash
+uidNumber: 1000
+gidNumber: 1001
+homeDirectory: /home/maho

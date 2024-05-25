@@ -1,0 +1,19 @@
+---
+named_home: /var/named
+hostname: "{{ inventory_hostname_short }}"
+domain: rat.hostonly
+reverse_domain: 1.20.172.in-addr.arpa.
+
+dns_record:
+ - name: ldap
+   type: CNAME
+   cname: ns.rat.hostonly
+ - name: ca
+   type: CNAME
+   cname: ns.rat.hostonly
+ - name: git
+   type: A
+   ipaddress: 172.20.1.253
+ - name: regi
+   type: A
+   ipaddress: 172.20.1.252

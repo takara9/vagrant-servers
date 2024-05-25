@@ -1,0 +1,10 @@
+---
+- name: Set up 
+  hosts: ldap
+  gather_facts: true
+  become: true
+
+  roles:
+    - centos
+    - ldap_centos7
+

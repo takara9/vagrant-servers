@@ -1,0 +1,42 @@
+#tasks file for Bind setup
+
+- name: Set hostname fact
+  set_fact:
+    ansible_fqdn: "{{ hostname}}.{{domain }}"
+
+
+- name: Copy forward file
+  template:
+    src: db.forward.j2
+    dest: "{{ named_home }}/zones/db.{{ domain }}"
+    owner: named
+    group: named
+    mode: 0640
+  notify: Start named
+
+- name: Copy reverse file
+  template:
+    src: db.reverse.j2
+    dest: "{{ named_home }}/zones/db.{{ reverse_domain }}"
+    owner: named
+    group: named
+    mode: 0640
+  notify: Start named
+
+
+- name: Insert block in named.conf.local
+  blockinfile:
+    path: "{{ named_home }}/named.conf.local"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    block: |
+      zone "{{ domain }}" IN {
+        type master;
+        file "{{ named_home }}/zones/db.{{ domain }}";
+        allow-update { key rndc-key; };
+      };
+      zone "{{ reverse_domain }}" IN {
+        type master;
+        file "{{ named_home }}/zones/db.{{ reverse_domain }}";
+        allow-update {key rndc-key; };
+      };
+

@@ -1,0 +1,127 @@
+#tasks file for Bind setup
+
+
+- name: Set hostname fact
+  set_fact:
+    ansible_fqdn: "{{ hostname}}.{{domain }}"
+
+## Setup Storage
+
+- name: Create a ext4 filesystem on /dev/sdb and check disk blocks
+  filesystem:
+    fstype: ext4
+    dev: /dev/sdb
+
+- name: Mount up device by /dev/sdb
+  mount:
+    path: /var/named
+    src:  /dev/sdb
+    fstype: ext4
+    state: mounted
+
+## Setup BIND
+
+- name: Install bind
+  yum:
+    pkg: bind
+    state: installed
+
+- name: Copy named conf file
+  template:
+    src: named.conf.j2
+    dest: /etc/named.conf
+    owner: root
+    group: named
+    mode: 0660
+  notify: Start named
+
+- name: Copy named conf local file
+  template:
+    src: named.conf.local.j2
+    dest: "{{ named_home }}/named.conf.local"
+    owner: named
+    group: named
+    mode: 0640
+  notify: Start named
+
+- name: Make zones Directory
+  file:
+    dest: "{{ named_home }}/zones"
+    state: directory
+    owner: named
+    group: named
+    mode: 0750
+
+- name: Copy forward file
+  template:
+    src: db.forward.j2
+    dest: "{{ named_home }}/zones/db.{{ domain }}"
+    owner: named
+    group: named
+    mode: 0640
+  notify: Start named
+
+- name: Copy reverse file
+  template:
+    src: db.reverse.j2
+    dest: "{{ named_home }}/zones/db.{{ reverse_domain }}"
+    owner: named
+    group: named
+    mode: 0640
+  notify: Start named
+
+- name: check if firewalld is running
+  command: systemctl is-active firewalld
+  register: firewalld_result
+  ignore_errors: yes
+  changed_when: "'inactive' in firewalld_result.stdout"
+
+- name: Open firewall port
+  firewalld:
+   service: dns
+   permanent: true
+   state: enabled
+   immediate: yes
+  when: firewalld_result.stdout == "active"
+
+#- name: resolv.conf replace
+#  template:
+#   src: resolv.j2
+#   dest: /etc/resolv.conf
+#   owner: root
+#   mode: 0640
+#  notify: Start named
+
+
+# DNSの設定    
+- name: make sure line 'dns=none' is set in /etc/NetworkManager/NetworkManager.conf
+  ini_file:
+    path: /etc/NetworkManager/NetworkManager.conf
+    state: present
+    no_extra_spaces: yes
+    section: main
+    option: dns
+    value: none
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+  notify:
+    - reload NetworkManager
+    - ReStart named
+  when: ansible_facts.hostname == "ns"
+    
+    
+- name: deploy resolv.conf template
+  template:
+    src: resolv.conf.j2
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+  notify:
+    - reload NetworkManager
+    - ReStart named
+  when: ansible_facts.hostname == "ns"    
+

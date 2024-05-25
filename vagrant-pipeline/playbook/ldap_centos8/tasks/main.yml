@@ -1,0 +1,230 @@
+#tasks file for Bind setup
+
+#- name: Set hostname fact
+#  set_fact:
+#    ansible_fqdn: "{{ hostname}}.{{domain }}"
+
+## Setup Storage
+
+#- name: Create a ext4 filesystem on /dev/sdb and check disk blocks
+#  filesystem:
+#    fstype: ext4
+#    dev: /dev/sdb
+
+#- name: Mount up device by /dev/sdb
+#  mount:
+#    path: /var/named
+#    src:  /dev/sdb
+#    fstype: ext4
+#    state: mounted
+
+## Setup LDAP
+
+
+- name: Download file 
+  get_url:
+    url: "ftp://ftp.openldap.org/pub/OpenLDAP/openldap-release/openldap-2.4.48.tgz"
+    dest: /root/openldap-2.4.48.tgz
+    mode: '0440'
+
+- name: ensure a list of packages installed
+  dnf:
+    name:
+      - make
+      - tar
+      - gcc
+      - openssl-devel
+      - libtool-ltdl-devel
+      - libdb-devel
+      - cyrus-sasl-devel      
+    state: present
+
+    
+- name: Add the group 'ldap'
+  group:
+    name: ldap
+    gid: 55
+    
+- name: Add the user 'ldap'
+  user:
+    name: ldap
+    create_home: no
+    system: no
+    shell: /usr/sbin/nologin
+    group: ldap
+    home: /var/lib/openldap
+    uid: 55
+
+    
+- name: Run tar
+  shell: tar xf openldap-2.4.48.tgz
+  args:
+    chdir: /root
+
+- name: configure
+  shell: |
+    ./configure --with-cyrus-sasl --with-tls=openssl --enable-overlays=mod \
+        --enable-backends=mod --disable-perl --disable-ndb --enable-crypt \
+        --enable-modules --enable-dynamic --enable-syslog --enable-debug --enable-local \
+        --enable-spasswd --disable-sql --prefix=/opt/openldap-2.4.48
+  args:
+    executable: /bin/bash
+    chdir: /root/openldap-2.4.48
+    
+- name: make depend
+  shell: make depend
+  args:
+    chdir: /root/openldap-2.4.48
+
+- name: make
+  shell: make
+  args:
+    chdir: /root/openldap-2.4.48
+
+- name: make in contirb
+  shell: make
+  args:
+    chdir: /root/openldap-2.4.48/contrib/slapd-modules/passwd/sha2
+    
+- name: make
+  shell: make install
+  args:
+    chdir: /root/openldap-2.4.48
+
+- name: make install 
+  shell: make DESTDIR=/opt/openldap-2.4.48 install
+  args:
+    chdir: /root/openldap-2.4.48/contrib/slapd-modules/passwd/sha2
+
+- name: libtool
+  shell: ../../../../libtool --finish /opt/openldap-2.4.48/usr/local/libexec/openldap
+  args:
+    chdir: /root/openldap-2.4.48/contrib/slapd-modules/passwd/sha2
+
+- name: mv to libexec
+  shell: mv * /opt/openldap-2.4.48/libexec/openldap 
+  args:
+    chdir: /opt/openldap-2.4.48/usr/local/libexec/openldap
+    
+- name: chown at /opt/openldap-2.4.48
+  shell: find . -type d -exec chmod 755 {} \; 
+  args:
+    chdir: /opt/openldap-2.4.48
+
+- name: chown
+  shell: chown ldap:ldap . 
+  args:
+    chdir: /opt/openldap-2.4.48/var/run/
+    
+- name: create symbolic link
+  shell: ln -s /opt/openldap-2.4.48 /opt/openldap-current 
+  args:
+    chdir: /opt/openldap-2.4.48/var
+        
+- name: copy systemd file
+  template:
+    src: slapd-current.service.j2
+    dest: /etc/systemd/system/slapd-current.service
+    owner: root
+    group: root
+
+- name: copy sysconfig file
+  template:
+    src: slapd-current.j2
+    dest: /etc/sysconfig/slapd-current
+    owner: root
+    group: root
+    
+- name: create pki
+  file:
+    dest: /pki
+    state: directory
+    owner: ldap
+    group: ldap
+    mode: 0750
+
+- name: Generate an OpenSSL private key with the default values (4096 bits, RSA)
+  openssl_privatekey:
+    path: /pki/ldapkey.pem
+    
+- name: Generate an OpenSSL Certificate Signing Request
+  openssl_csr:
+    path:  /pki/ldapcsr.csr
+    privatekey_path: /pki/ldapkey.pem
+    
+- name: Generate a Self Signed OpenSSL certificate
+  openssl_certificate:
+    path: /pki/ldapcert.pem
+    privatekey_path: /pki/ldapkey.pem
+    csr_path: /pki/ldapcsr.csr
+    provider: selfsigned
+    selfsigned_digest: sha256
+    selfsigned_not_after: +3650d
+    
+- name: generate cert & key
+  shell: cat ldapcert.pem >> cacerts.pem
+  args:
+    chdir: /pki
+
+- name: copy ldif
+  template:
+    src: slapd.ldif.j2
+    dest: /opt/openldap-current/etc/openldap/slapd.ldif
+    owner: root
+    group: root
+    mode: 0644
+    
+- name: create slapd.d
+  file:
+    dest: /opt/openldap-current/etc/openldap/slapd.d
+    state: directory
+    owner: ldap
+    group: ldap
+    mode: 0750
+
+- name: slapadd
+  shell: /opt/openldap-current/sbin/slapadd -n 0 -F slapd.d -l slapd.ldif
+  args:
+    chdir: /opt/openldap-current/etc/openldap
+    
+- name: Change file ownership, group and permissions
+  file:
+    path: /opt/openldap-current/etc/openldap
+    owner: ldap
+    group: ldap
+    mode: 0640
+    recurse: yes
+    
+- name: Start slapd
+  systemd:
+    name: slapd-current
+    state: started
+    daemon_reload: yes    
+
+    
+    #  - openldap
+    #  - openldap-clients
+    #  - php-ldap
+    #  - php-mbstring
+    #  - php-pear
+    #  - php-xml
+    #  - epel-release
+
+
+#- name: Start slapd
+#  systemd:
+#    name: slapd
+#    state: started
+#  become: yes
+
+
+
+
+#- name: ensure a list of packages installed
+#  dnf:
+#    name: "{{ packages }}"
+#    state: present
+#  vars:
+#    packages:
+#    - phpldapadmin
+    

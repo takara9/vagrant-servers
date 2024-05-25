@@ -1,0 +1,17 @@
+# default var for CA setup
+---
+ca_home: /CA
+ca_user: vagrant
+ca_group: vagrant
+
+domain_certs:
+  - name: regi
+    cn: regi.rat.local
+  - name: mail
+    cn: mail.rat.local
+  - name: ldap
+    cn: ldap.rat.local
+  - name: lb
+    cn: lb.rat.local
+  - name: www
+    cn: www.rat.local

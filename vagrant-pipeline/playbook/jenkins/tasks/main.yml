@@ -1,0 +1,59 @@
+#tasks file for Bind setup
+
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+      - java-1.8.0-openjdk-devel
+      - git
+      - openssl-devel
+      - nginx
+
+      
+- name: Copy nginx conf file
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: 0640
+      
+
+- name: Download file 
+  get_url:
+    url: "http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo"
+    dest: /home/vagrant
+    mode: '0444'
+
+    
+- name: add repo
+  command: cp jenkins.repo /etc/yum.repos.d/jenkins.repo
+  args:
+    chdir:
+      /home/vagrant
+
+ 
+- rpm_key:
+    state: present
+    key: https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+
+    
+- name: install the latest version of Apache
+  yum:
+    name: jenkins
+    state: present
+
+- name: start jenkins
+  systemd:
+    name: jenkins
+    state: started
+    enabled: yes
+
+- name: start nginx
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes
+    

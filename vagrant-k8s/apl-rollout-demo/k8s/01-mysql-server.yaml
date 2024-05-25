@@ -1,0 +1,44 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: ro-dbserver
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ro-dbserver
+    spec:
+      containers:
+      - name: mysql
+        image: maho/dbserver:1.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_DATABASE
+          value: test
+        - name: MYSQL_ROOT_PASSWORD
+          value: root
+        - name: MYSQL_USER
+          value: dev
+        - name: MYSQL_PASSWORD
+          value: dev
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: data-vol
+      volumes:
+      - name: data-vol
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+spec:
+  selector:
+    app: ro-dbserver
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+

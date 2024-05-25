@@ -1,0 +1,12 @@
+---
+# handlers file for Mail setup
+- name: Start named
+  systemd:
+    name: named.service
+    state: started
+
+- name: ReStart named
+  systemd:
+    name: named.service
+    state: restarted
+

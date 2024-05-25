@@ -1,0 +1,150 @@
+#tasks file
+
+#- debug: msg="{{ ansible_facts }}"
+
+- name: check version
+  debug: msg="CentOS7"
+  when:
+    - ansible_facts.distribution_major_version == "7"
+
+- name: check version
+  debug: msg="CentOS8"
+  when:
+    - ansible_facts.distribution_major_version == "8"
+
+
+# ホスト名とドメイン名
+- name: Set hostname
+  hostname:
+    name: "{{ hostname }}.{{ domain }}"
+
+
+# DNSのリゾルバー設定 （ネームサーバー以外）
+- name: make sure line 'dns=none' is set in /etc/NetworkManager/NetworkManager.conf
+  ini_file:
+    path: /etc/NetworkManager/NetworkManager.conf
+    state: present
+    no_extra_spaces: yes
+    section: main
+    option: dns
+    value: none
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+  notify:
+    - reload NetworkManager
+  when: ansible_facts.hostname != "ns"
+    
+- name: deploy resolv.conf template
+  template:
+    src: resolv.conf.j2
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: 0644
+    backup: yes
+  notify:
+    - reload NetworkManager    
+  when: ansible_facts.hostname != "ns"    
+
+  
+## プライベート認証局のルート証明書をインストール
+- name: Check Private CA Cert
+  stat:
+    path: "{{ cert_src }}/cacert.pem"
+  register: cert
+
+#- debug: msg="{{ cert }}"
+  
+- name: Copy CA Certs
+  copy: src="{{ cert_src }}/cacert.pem" dest="{{ cert_path }}"
+  when:
+    - cert.stat.exists == true
+    - ansible_facts.hostname != "ns"
+  
+- name: Extract certificates
+  command: /usr/bin/update-ca-trust extract
+  when:
+    - cert.stat.exists == true
+    - ansible_facts.hostname != "ns"
+      
+## セキュリティ
+- name: Change selinux
+  selinux:
+    policy: targeted
+    state: permissive
+
+## ファイアウオールの停止    
+- name: Stop firewalld
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: no
+    
+
+## 必要なソフト
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+    - bind-utils
+    - net-tools
+    - epel-release
+    - git
+    - yum-utils
+    - device-mapper-persistent-data
+    - lvm2
+
+
+
+
+    
+
+#- name: check if firewalld is running
+#  command: systemctl is-active firewalld
+#  register: firewalld_result
+#  ##changed_when: False
+#  ##ignore_errors: True
+
+#- name: firewall-cli add masquerade
+#  firewalld:
+#    masquerade: yes
+#    permanent: yes
+#    state: enabled
+#    zone: public
+#    immediate: yes
+#  when: firewalld_result.stdout == "active"
+
+#- firewalld:
+#    port: 9080/tcp
+#    permanent: yes
+#    state: enabled
+#    zone: public
+#    immediate: yes
+#  when: firewalld_result.stdout == "active"
+
+#- firewalld:
+#    port: 5443/tcp
+#    permanent: yes
+#    state: enabled
+#    zone: public
+#    immediate: yes
+#  when: firewalld_result.stdout == "active"
+
+#- firewalld:
+#    port: 5000/tcp
+#    permanent: yes
+#    state: enabled
+#    zone: public
+#    immediate: yes
+#  when: firewalld_result.stdout == "active"
+
+#- name: restart service docker on centos, in all cases, also issue daemon-reload to pick up config changes
+#  systemd:
+#    state: restarted
+#    daemon_reload: yes
+#    name: docker
+

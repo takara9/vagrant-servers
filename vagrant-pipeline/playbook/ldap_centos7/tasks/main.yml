@@ -1,0 +1,171 @@
+# tasks file for ldap on centos7
+
+- name: ensure a list of packages uninstalled
+  yum:
+    name: "{{ packages }}"
+    state: absent
+  vars:
+    packages:
+      - postfix
+      - rpcbind
+
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+      - openldap-servers      
+      - openldap-clients
+      - php
+      - php-ldap
+      - php-mbstring
+      - php-pear
+      - php-xml
+      - httpd
+      #- phpldapadmin
+      - python-ldap
+
+
+# Clone from PHPLdapAdmin 
+- git:
+    repo: https://github.com/leenooks/phpldapadmin
+    dest: /phpldapadmin
+
+      
+# PHP LDAP Admin
+
+- name: copy phpldapadmin.conf
+  template:
+    src: phpldapadmin.conf.j2
+    dest: /etc/httpd/conf.d/phpldapadmin.conf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: copy phpldapadmin config file
+  template:
+    src: config.php.j2
+    dest: /phpldapadmin/config/config.php
+    owner: root
+    group: root
+    mode: 0644
+
+
+## Daemon Start or Stop
+    
+- name: Start slapd
+  systemd:
+    name: slapd.service
+    state: started
+    daemon_reload: yes    
+
+- name: Start httpd
+  systemd:
+    name: httpd.service
+    state: started
+    daemon_reload: yes    
+    
+
+# LDAP Database build
+- name: check ldrootPW.ldif
+  stat:
+    path: /root/ldrootPW.ldif
+  register: pass_check
+
+- name: safely use templated variable to run command. Always use the quote filter to avoid injection issues.
+  command: slappasswd -s {{ ldap_passwd_plain_text }}
+  register: ldap_passwd_ssha
+  when: pass_check.stat.exists == false
+
+- name: set ldap admin passwd
+  template:
+    src: ldrootPW.ldif.j2
+    dest: /root/ldrootPW.ldif
+    owner: root
+    group: root
+    mode: 0644
+  when: ldap_passwd_ssha is defined and pass_check.stat.exists == false
+  
+- name: set password LDAP server
+  command: ldapadd -Y EXTERNAL -H ldapi:/// -f /root/ldrootPW.ldif
+  when: ldap_passwd_ssha is defined and pass_check.stat.exists == false
+  
+
+# Read Schemas
+
+- name: Load Schemas
+  shell: |
+    ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/cosine.ldif;
+    ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/nis.ldif;
+    ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/inetorgperson.ldif;
+  args:
+    executable: /bin/bash
+  when: ldap_passwd_ssha is defined and pass_check.stat.exists == false
+
+  
+# Configure Base DN & Administrator DN
+  
+- name: prepare base dn and administrator dn
+  template:
+    src: lddomain.ldif.j2
+    dest: /root/lddomain.ldif
+    owner: root
+    group: root
+    mode: 0644
+  when: ldap_passwd_ssha is defined and pass_check.stat.exists == false
+    
+- name: configure base dn and administrator dn
+  command: ldapadd -Y EXTERNAL -w {{ ldap_passwd_plain_text }} -H ldapi:/// -f /root/lddomain.ldif
+  when: ldap_passwd_ssha is defined and pass_check.stat.exists == false
+  
+# Configure Organization  
+
+- name: prepare Organization 
+  template:
+    src: ldbase_ou.ldif.j2
+    dest: /root/ldbase_ou.ldif
+    owner: root
+    group: root
+    mode: 0644
+
+- name: configure Organization  
+  command: ldapadd -x -D "cn=Manager,dc=rat,dc=local" -w {{ ldap_passwd_plain_text }} -H ldapi:/// -f /root/ldbase_ou.ldif
+## Add Organization Member
+
+- name: prepare Organization Member
+  template:
+    src: groupadd.ldif.j2
+    dest: /root/groupadd.ldif
+    owner: root
+    group: root
+    mode: 0644
+
+- name: configure Organization Member
+  command: ldapadd -x -D "cn=Manager,dc=rat,dc=local" -w {{ ldap_passwd_plain_text }} -H ldapi:/// -f /root/groupadd.ldif
+
+
+
+  
+## Add User
+- name: transrate user's password
+  command: slappasswd -s {{ user_password_plain_text }}
+  register: user_password_ssha
+
+- name: prepare User
+  template:
+    src: lduser.ldif.j2
+    dest: /root/lduser.ldif
+    owner: root
+    group: root
+    mode: 0644
+
+- name: configure User
+  command: ldapadd -x -D "cn=Manager,dc=rat,dc=local" -w {{ ldap_passwd_plain_text }} -H ldapi:/// -f /root/lduser.ldif
+
+
+
+  
+
+
+    

@@ -1,0 +1,189 @@
+#tasks file for In House CA setup
+- name: Start named
+  systemd:
+    name: named.service
+    state: started
+
+
+## Setup Storage
+
+- name: Create a ext4 filesystem on /dev/sdc and check disk blocks
+  filesystem:
+    fstype: ext4
+    dev: /dev/sdc
+
+- name: Mount up device by /dev/sdc
+  mount:
+    path: /CA
+    src:  /dev/sdc
+    fstype: ext4
+    state: mounted
+
+- name: Change Owner /CA
+  file:
+    path: /CA
+    owner: vagrant
+    group: vagrant
+    mode: 0750
+
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+    state: installed
+  vars:
+    packages:
+    - openssl
+    - expect
+    
+
+- name: Make CA certs directory
+  file:
+    path: "/{{ ca_home }}/certs"
+    state: directory
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"
+    mode: 0750
+
+- name: Make CA private directory
+  file:
+    path: "/{{ ca_home }}/private"
+    state: directory
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"
+    mode: g-rwx,o-rwx
+
+- name: Make CA newcerts directory
+  file:
+    path: "/{{ ca_home }}/newcerts"    
+    state: directory
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"
+    mode: 0750
+
+- name: Touch the same file, but add/remove some permissions
+  file:
+    path: "/{{ ca_home }}/index.txt"
+    state: touch
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"    
+    mode: u+rw,g-wx,o-rwx
+
+- name: Copy CA config file
+  template:
+    src: serial.j2
+    dest: "{{ ca_home }}/serial"
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"    
+    mode: 0660
+
+
+- name: Copy CA config file
+  template:
+    src: openssl.cnf.j2
+    dest: "{{ ca_home }}/openssl.cnf"
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"    
+    mode: 0660
+
+- name: set environment file
+  template:
+    src: environment.j2
+    dest: /etc/environment
+    owner: root
+    group: root
+    mode: 0664
+
+## 使用法説明ファイル配置   
+- name: copy README.txt
+  template:
+    src: README.j2
+    dest: "/CA/README.txt"
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"    
+    mode: 0664
+
+    
+## 署名要求のディレクトリ作成
+- name: Create CSR directory
+  file:
+    path: "/{{ ca_home }}/csr"
+    state: directory
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"
+    mode: g-rwx,o-rwx
+
+
+## ドメイン毎の証明書ディレクトリ作成
+- name: Create CRT directory
+  file:
+    path: "/{{ ca_home }}/csr/{{ item.name }}"
+    state: directory
+    owner: "{{ ca_user }}"
+    group: "{{ ca_group }}"
+    mode: g-rwx,o-rwx
+  with_items: '{{ domain_certs }}'
+
+## プライベート認証局の証明書
+## 　プライベート認証局の証明書存在チェックして
+##   存在していれば生成しないで証明書を再利用する。
+- name: Generate CERT for Private CA
+  shell: |
+    if [ ! -d /vagrant/certs/ca-cert ]; then 
+      mkpasswd  -s 0 -l 12 > ca_passwd.txt;
+      openssl req -new -x509 -extensions v3_ca -keyout certs/cakey.pem -out certs/cacert.pem -days 3650 -subj "/C=JP/ST=Tokyo/L=Nihombash/O=RatSign Virtual Inc./OU=RatSign Root CA/CN=RatSign" -passout file:ca_passwd.txt;
+      mkdir /vagrant/certs/ca-cert;
+      cp certs/cacert.pem /vagrant/certs/ca-cert;
+      cp certs/cakey.pem  /vagrant/certs/ca-cert;
+      cp ca_passwd.txt    /vagrant/certs/ca-cert;
+    fi 
+    exit 0
+  args:
+    executable: /bin/bash
+    chdir: "/{{ ca_home }}"
+    
+    
+## CSRの作成とCAによる署名
+##   生成の条件は上記と同様
+- name: Run shell to create CSR/CERT
+  shell: |
+    if [ ! -d "/vagrant/certs/{{ item.name }}" ]; then 
+      cd "/{{ ca_home }}/csr/{{ item.name }}";
+      mkpasswd  -s 0 -l 12 > key_passwd.txt;
+      ## CSRの作成
+      openssl genrsa -des3 -passout file:key_passwd.txt -out domain.key.encrypted 2048;
+      openssl rsa -passin file:key_passwd.txt -in domain.key.encrypted -out domain.key;
+      openssl req -new -key domain.key -out domain.csr -subj "/C=JP/ST=Tokyo/L=Nihombash/O=RatSystem Inc./CN={{ item.cn }}";
+      ## CAの署名
+      openssl ca -in domain.csr -out domain.crt -batch -passin file:/CA/ca_passwd.txt;
+      ## 仮想マシン間で共有のためコピー
+      cd "/{{ ca_home }}/csr";
+      cp -fr "{{ item.name }}" /vagrant/certs/;
+    fi
+    exit 0
+  args:
+    executable: /bin/bash
+    chdir: "/home/vagrant"
+  with_items: '{{ domain_certs }}'
+
+  
+## プライベート認証局のルート証明書をインストール
+- name: Check Private CA Cert
+  stat:
+    path: "{{ cert_src }}/cacert.pem"
+  register: cert
+
+#- debug: msg="{{ cert }}"
+  
+- name: Copy CA Certs
+  copy: src="{{ cert_src }}/cacert.pem" dest="{{ cert_path }}"
+  when: cert.stat.exists == true
+
+- name: Extract certificates
+  command: /usr/bin/update-ca-trust extract
+  when: cert.stat.exists == true
+
+
+  
+    
+
+  

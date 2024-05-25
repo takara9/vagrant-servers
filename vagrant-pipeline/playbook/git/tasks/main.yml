@@ -1,0 +1,164 @@
+#tasks file for git setup
+
+## Git Repositorys Storage
+
+- name: Git Repositorys Create a ext4 filesystem on /dev/sdb and check disk blocks
+  filesystem:
+    fstype: ext4
+    dev: /dev/sdb
+
+- name: Mount up device by /dev/sdb
+  mount:
+    path: "{{ git_repos }}"
+    src:  /dev/sdb
+    fstype: ext4
+    state: mounted
+    
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+  vars:
+    packages:
+    - git-all
+    - git-daemon
+    - git-instaweb
+    - httpd
+    - mod_dav
+    - perl-TermReadKey
+
+
+- name: Copy named conf local file
+  template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: 0640
+
+- name: restart service sshd on centos, in all cases, also issue daemon-reload to pick up config changes
+  systemd:
+    state: restarted
+    daemon_reload: yes
+    name: sshd
+
+
+- name: Ensure group "git" exists
+  group:
+    name:  git
+    state: present
+
+- name: Add the user 'git' with a specific uid and a primary group of 'git'
+  user:
+    name: git
+    comment: Git Repository
+    group: git
+
+
+- name: Give insecure permissions to an existing file
+  file:
+    path: "{{ git_repos }}/org"
+    owner: git
+    group: git
+    mode: '2775'
+    state: directory
+
+
+- name: Give insecure permissions to an existing file
+  file:
+    path: "{{ git_repos }}/org/sample"
+    owner: git
+    group: git
+    mode: '2775'
+    state: directory
+
+- name: Execute the command in remote shell; stdout goes to the specified file on the remote.
+  shell: cd "{{ git_repos }}/org/sample" && git init --bare --shared
+
+
+## for Git Users  
+- name: Add the user 'gituser' with a specific uid and a primary group of 'git'
+  user:
+    name: gituser
+    comment: User of Git Repository
+    home: /home/gituser
+    shell: /bin/bash
+    group: git
+- name: Set authorized key taken from file
+  authorized_key:
+    user: gituser
+    state: present
+    key: https://github.com/takara9.keys
+
+    
+## Gitユーザーの追加
+## 鍵が存在していたら再利用する
+- name: Add the git user with a primary group of 'git'
+  user:
+    name: "{{ item.name }}"
+    comment: User of Git Repository
+    home: "/home/{{ item.name }}"
+    shell: /bin/bash
+    group: git
+    generate_ssh_key: yes
+    ssh_key_bits: 2048
+    ssh_key_file: .ssh/id_rsa
+  with_items: '{{ users }}'
+
+- name: copy back .ssh/authorized_keys
+  shell: |
+    if [ -f "/vagrant/users/{{ item.name }}-pub" ]; then
+      cp "/vagrant/users/{{ item.name }}-pub" ".ssh/authorized_keys"
+    else
+      cp ".ssh/id_rsa.pub" "/vagrant/users/{{ item.name }}-pub";
+      cp ".ssh/id_rsa" "/vagrant/users/{{ item.name }}-priv";
+      cp ".ssh/id_rsa.pub" ".ssh/authorized_keys";
+    fi;
+    chown "{{ item.name }}:git" ".ssh/authorized_keys";
+    chmod 0600 ".ssh/authorized_keys";
+    exit 0
+  args:
+    executable: /bin/bash
+    chdir: "/home/{{ item.name }}"
+  with_items: '{{ users }}'
+  
+  
+    
+## Firewall config
+    
+#- name: check if firewalld is running
+#  command: systemctl is-active firewalld
+#  register: firewalld_result
+#  changed_when: False
+#  ignore_errors: True
+
+#- name: Open firewall port
+#  firewalld:
+#   service: http
+#   permanent: true
+#   state: enabled
+#   immediate: yes
+#  when: firewalld_result.stdout == "active"
+
+
+## Web UI Configuration 
+
+- name: Copy gitweb.conf conf local file
+  template:
+    src: gitweb.conf.j2
+    dest: /etc/gitweb.conf
+    owner: root
+    group: root
+    mode: 0640
+
+- name: Copy gitweb.conf conf local file
+  template:
+    src: gitweb.cgi.j2
+    dest: /var/www/git/gitweb.cgi
+    owner: root
+    group: root
+    mode: 0755
+    
+- name: Make sure a service is running
+  systemd:
+    state: started
+    name: httpd

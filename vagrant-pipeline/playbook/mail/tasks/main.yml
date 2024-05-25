@@ -1,0 +1,138 @@
+#tasks file for Bind setup
+
+# named が時々起動してない時があるので、
+# 起動を確実にするためにおく
+- name: Start named
+  systemd:
+    name: named.service
+    state: started
+
+- name: ensure a list of packages installed
+  dnf:
+    name:
+      - postfix
+      - dovecot
+    state: present
+
+
+    
+# 証明書用フォルダー作成
+- name: Make SSL Directory
+  file:
+    dest: "/etc/postfix/ssl"
+    state: directory
+    owner: root
+    group: root
+    mode: 0750
+
+## 自己署名証明書作成
+#- name: Generate Selfsigned key & cert
+#  command: openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/postfix/ssl/server.key -out /etc/postfix/ssl/server.crt -subj "/C=JP/ST=Tokyo/L=Nihombash/O=RatVituralCorp/CN=mail.rat.local"
+
+
+## サーバー証明書の存在チェック    
+- stat:
+    path: /vagrant/certs/mail/domain.crt
+  register: cert_key
+
+  
+- name: Copy domain.crt file 
+  copy:
+    src: /vagrant/certs/mail/domain.crt
+    dest: /etc/postfix/ssl/server.crt
+    mode: 0644
+  when: cert_key.stat.exists == true
+    
+- name: Copy domain.key file 
+  copy:
+    src: /vagrant/certs/mail/domain.key
+    dest: /etc/postfix/ssl/server.key
+    mode: 0644
+  when: cert_key.stat.exists == true
+
+
+  
+# POSTFIX(SMTP)の設定
+- name: copy postfix main.cf
+  template:
+    src: main.cf.j2  
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: copy postfix master.cf
+  template:
+    src: master.cf.j2  
+    dest: /etc/postfix/master.cf
+    owner: root
+    group: root
+    mode: 0644
+
+# Dovecot(imap4, pop3)の設定    
+- name: copy dovecot conf.d/10-master.conf
+  template:
+    src: 10-master.conf.j2
+    dest: /etc/dovecot/conf.d/10-master.conf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: copy dovecot conf.d/10-mail.conf
+  template:
+    src: 10-mail.conf.j2
+    dest: /etc/dovecot/conf.d/10-mail.conf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: copy dovecot conf.d/10-auth.conf
+  template:
+    src: 10-auth.conf.j2
+    dest: /etc/dovecot/conf.d/10-auth.conf
+    owner: root
+    group: root
+    mode: 0644
+
+- name: copy dovecot conf.d/10-ssl.conf
+  template:
+    src: 10-ssl.conf.j2
+    dest: /etc/dovecot/conf.d/10-ssl.conf
+    owner: root
+    group: root
+    mode: 0644
+    
+- name: copy dovecot conf.d/
+  template:
+    src: 20-pop3.conf.j2
+    dest: /etc/dovecot/conf.d/20-pop3.conf
+    owner: root
+    group: root
+    mode: 0644
+
+
+# デーモンの開始
+    
+- name: Start Postfix
+  systemd:
+    name: postfix
+    state: started
+    enabled: yes
+
+- name: Start Dovecot
+  systemd:
+    name: dovecot
+    state: started
+    enabled: yes
+
+  
+# メールユーザー作成
+- debug: msg="{{ users }}"
+
+- name: Add the user
+  user:
+    name: '{{ item.name }}'
+    password: "{{ item.password | password_hash('sha512') }}"
+    shell: /usr/sbin/nologin
+    group: '{{ item.group }}'
+  with_items: '{{ users }}'

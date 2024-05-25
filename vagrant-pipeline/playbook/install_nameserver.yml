@@ -1,0 +1,13 @@
+---
+- name: Set up 
+  hosts: ns
+  gather_facts: true
+  become: true
+
+  roles:
+    - centos
+    - bind
+    - bind_local    
+    - ca
+    - mail
+

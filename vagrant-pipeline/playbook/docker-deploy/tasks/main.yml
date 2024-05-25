@@ -1,0 +1,158 @@
+# tasks file for Docker setup
+
+- name: ensure a list of packages installed
+  yum:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+    - python2
+    - python2-pip
+
+- name: docker compose up
+  shell: pip3 install docker
+
+
+- name: Create a network
+  docker_network:
+    name: backend-network
+
+- name: Start registry container
+  docker_container:
+    name: regi.rat.local
+    image: registry:2.7.1
+    state: started
+    restart: yes
+    ports:
+      - 5000:5000
+    exposed_ports:
+      - 5000:5000
+    volumes:
+      - "{{ registry_dir }}:/var/lib/registry"
+    networks:
+      - name: backend-network
+
+
+- name: Create a directory if it does not exist
+  file:
+    path: /home/vagrant/registry-conf/conf.d/
+    state: directory
+    owner: root
+    group: root
+    mode:  0755
+
+- name: Copy nginx conf file
+  template:
+    src: registry.conf.j2
+    dest: /home/vagrant/registry-conf/conf.d/registy.conf
+    owner: root
+    group: root
+    mode:  0660
+
+- name: Copy htpasswd file
+  template:
+    src: nginx.htpasswd.j2
+    dest: /home/vagrant/registry-conf/conf.d/nginx.htpasswd
+    owner: root
+    group: root
+    mode:  0666
+
+## サーバー証明書の存在チェック    
+- stat:
+    path: /vagrant/certs/regi/domain.crt
+  register: regi_key
+  
+- name: Copy domain.crt file 
+  copy:
+    src: /vagrant/certs/regi/domain.crt
+    dest: /home/vagrant/registry-conf/conf.d/domain.crt
+    mode: 0644
+  when: regi_key.stat.exists == true
+    
+- name: Copy domain.key file 
+  copy:
+    src: /vagrant/certs/regi/domain.key
+    dest: /home/vagrant/registry-conf/conf.d/domain.key
+    mode: 0644
+  when: regi_key.stat.exists == true
+
+# クライアント側のDockerエンジンの設定を変更する必要がある。
+# https://docs.docker.com/registry/insecure/
+# https://docs.docker.com/docker-for-mac/faqs/#add-tls-certificates
+# https://docs.docker.com/registry/deploying/#get-a-certificate
+
+
+#--　消去予定 ----------------------------------------------   
+#- name: Generate an OpenSSL private key with the default values (4096 bits, RSA)
+#  openssl_privatekey:
+#    path: /home/vagrant/registry-conf/conf.d/domain.key
+#  when: regi_key.stat.exists == false
+#
+#- name: Generate an OpenSSL Certificate Signing Request
+#  openssl_csr:
+#    path: /home/vagrant/registry-conf/conf.d/domain.csr
+#    privatekey_path: /home/vagrant/registry-conf/conf.d/domain.key
+#    country_name: JP
+#    organization_name: Rat virtual corp
+#    email_address: takara9@gmail.com
+#    common_name: regi.rat.local
+#  when: regi_key.stat.exists == false    
+#    
+#- name: Generate a Self Signed OpenSSL certificate
+#  openssl_certificate:
+#    path: /home/vagrant/registry-conf/conf.d/domain.crt
+#    privatekey_path: /home/vagrant/registry-conf/conf.d/domain.key
+#    csr_path: /home/vagrant/registry-conf/conf.d/domain.csr
+#    provider: selfsigned
+#    selfsigned_digest: sha256
+#    selfsigned_not_after: +3650d
+#  when: regi_key.stat.exists == false
+
+
+#--　消去予定 ----------------------------------------------   
+#- name: Generate Selfsigned key & cert
+#  command: openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /home/vagrant/registry-conf/conf.d/domain.key -out /home/vagrant/registry-conf/conf.d/domain.crt -subj "/C=JP/ST=Tokyo/L=Nihombash/O=RatVituralCorp/CN=regi.rat.local"
+#  when: regi_key.stat.exists == false
+  
+#- name: Copy domain.crt file 
+#  command: cp /home/vagrant/registry-conf/conf.d/domain.crt /vagrant/pki/domain.crt
+#  when: regi_key.stat.exists == false
+    
+#- name: Copy domain.key file
+#  command: cp /home/vagrant/registry-conf/conf.d/domain.key /vagrant/pki/domain.key
+#  when: regi_key.stat.exists == false
+
+  
+    
+- name: Start nginx container
+  docker_container:
+    name: nginx
+    image: nginx:alpine
+    state: started
+    restart: yes
+    ports:
+      - 443:443
+    exposed_ports:
+      - 443:443
+    volumes:
+      - /home/vagrant/registry-conf/conf.d:/etc/nginx/conf.d
+    networks:
+      - name: backend-network
+
+- name: Start web frontend container
+  docker_container:
+    name: docker-registry-frontend
+    image: konradkleine/docker-registry-frontend:v2
+    state: started
+    restart: yes
+    ports:
+      - 80:80
+    exposed_ports:
+      - 80:80
+    networks:
+      - name: backend-network
+    env:
+        ENV_DOCKER_REGISTRY_HOST: "regi.rat.local"
+        ENV_DOCKER_REGISTRY_PORT: "5000"
+        #ENV_DOCKER_REGISTRY_USE_SSL: "1"
+

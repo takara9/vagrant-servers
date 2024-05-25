@@ -1,0 +1,27 @@
+---
+named_home: /var/named
+hostname: "{{ inventory_hostname_short }}"
+domain: rat.local
+reverse_domain: 1.168.192.in-addr.arpa.
+
+dns_record:
+ - name: ca
+   type: CNAME
+   cname: ns.rat.local
+ - name: mail
+   type: CNAME
+   cname: ns.rat.local
+ - name: git
+   type: A
+   ipaddress: 192.168.1.253
+ - name: regi
+   type: A
+   ipaddress: 192.168.1.252
+ - name: ldap
+   type: A
+   ipaddress: 192.168.1.251
+ - name: jenkins
+   type: A
+   ipaddress: 192.168.1.250
+
+

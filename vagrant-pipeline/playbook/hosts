@@ -1,0 +1,16 @@
+[targets]
+ns            ansible_connection=local
+git           ansible_connection=local
+regi          ansible_connection=local
+ldap          ansible_connection=local
+jenkins       ansible_connection=local
+
+[all]
+ns
+git
+regi
+ldap
+jenkins
+
+
+
